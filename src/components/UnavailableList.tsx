@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import {
   Wrench, CheckCircle2, Clock, User, FileText, Filter, XCircle,
-  RotateCcw, ChevronDown, CalendarDays, AlertTriangle
+  RotateCcw, ChevronDown, CalendarDays, AlertTriangle, AlertOctagon,
+  Timer, Zap
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { UnavailableReason, UnavailableReasonLabels } from '../types';
@@ -118,21 +119,43 @@ export default function UnavailableList() {
       <div className="space-y-3 max-h-[460px] overflow-y-auto scrollbar-thin pr-1">
         {list.map(rec => {
           const inv = inverters.find(i => i.id === rec.inverterId);
+          const now = Date.now();
+          const isOverdue = !rec.resolved && rec.expectedRestore && now > new Date(rec.expectedRestore).getTime();
+          const downtimeMinutes = Math.floor((now - new Date(rec.registeredAt).getTime()) / 60000);
+          const downtimeHours = Math.floor(downtimeMinutes / 60);
+          const downtimeDays = Math.floor(downtimeHours / 24);
+
+          const estimatedLoss = inv ? Math.round(inv.ratedCapacity * 0.85 * (downtimeMinutes / 60) * 0.4) : 0;
+
           return (
             <div
               key={rec.id}
               className={`p-4 rounded-xl border-2 transition-colors ${
                 rec.resolved
                   ? 'border-ink-100 bg-ink-50/50 opacity-75'
-                  : 'border-warn-100 bg-gradient-to-br from-white to-warn-50/30 hover:shadow-md'
+                  : isOverdue
+                    ? 'border-danger-200 bg-gradient-to-br from-white to-danger-50/40 hover:shadow-md'
+                    : 'border-warn-100 bg-gradient-to-br from-white to-warn-50/30 hover:shadow-md'
               }`}
             >
+              {isOverdue && (
+                <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-danger-100 border border-danger-200">
+                  <AlertOctagon size={16} className="text-danger-600 shrink-0" />
+                  <span className="text-sm font-semibold text-danger-700">
+                    ⚠️ 已超过预计恢复时间！请联系 {rec.registeredBy} 追责
+                  </span>
+                </div>
+              )}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    rec.resolved ? 'bg-solar-100 text-solar-700' : 'bg-warn-100 text-warn-700'
+                    rec.resolved
+                      ? 'bg-solar-100 text-solar-700'
+                      : isOverdue
+                        ? 'bg-danger-100 text-danger-700'
+                        : 'bg-warn-100 text-warn-700'
                   }`}>
-                    {rec.resolved ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+                    {rec.resolved ? <CheckCircle2 size={20} /> : isOverdue ? <AlertOctagon size={20} /> : <AlertTriangle size={20} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -151,6 +174,12 @@ export default function UnavailableList() {
                       </span>
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-ink-300"></span>
                       <span className="text-xs text-ink-500">{inv?.area}</span>
+                      {!rec.resolved && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ink-100 text-ink-600 text-xs">
+                          <Timer size={10} />
+                          {downtimeDays > 0 ? `${downtimeDays}天${downtimeHours % 24}小时` : downtimeHours > 0 ? `${downtimeHours}小时${downtimeMinutes % 60}分` : `${downtimeMinutes}分钟`}
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-sm text-ink-700 leading-relaxed mb-2">
@@ -159,20 +188,26 @@ export default function UnavailableList() {
                     </p>
 
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500">
-                      <span className="flex items-center gap-1">
-                        <User size={12} /> 登记人：{rec.registeredBy}
+                      <span className="flex items-center gap-1 font-medium text-ink-600">
+                        <User size={12} /> 责任人：{rec.registeredBy}
                       </span>
                       <span className="flex items-center gap-1">
-                        <Clock size={12} /> 登记：{new Date(rec.registeredAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        <Clock size={12} /> 登记时间：{new Date(rec.registeredAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </span>
                       {rec.expectedRestore && !rec.resolved && (
-                        <span className="flex items-center gap-1 text-warn-600">
-                          <CalendarDays size={12} /> 预计恢复：{new Date(rec.expectedRestore).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        <span className={`flex items-center gap-1 font-medium ${isOverdue ? 'text-danger-600' : 'text-warn-600'}`}>
+                          <CalendarDays size={12} /> {isOverdue ? '应恢复：' : '预计恢复：'}
+                          {new Date(rec.expectedRestore).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                       {rec.resolved && rec.resolvedAt && (
-                        <span className="flex items-center gap-1 text-solar-600">
-                          <CheckCircle2 size={12} /> 恢复：{new Date(rec.resolvedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        <span className="flex items-center gap-1 text-solar-600 font-medium">
+                          <CheckCircle2 size={12} /> 实际恢复：{new Date(rec.resolvedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                      {!rec.resolved && inv && estimatedLoss > 0 && (
+                        <span className="flex items-center gap-1 text-danger-600 font-medium">
+                          <Zap size={12} /> 估算发电损失：{estimatedLoss} kWh
                         </span>
                       )}
                       {inv && (
@@ -185,12 +220,14 @@ export default function UnavailableList() {
                 </div>
 
                 {!rec.resolved && canResolve && (
-                  <button
-                    onClick={() => handleResolve(rec.id)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-solar-500 to-solar-600 text-white hover:shadow-md transition-all shrink-0"
-                  >
-                    <RotateCcw size={15} /> 恢复设备
-                  </button>
+                  <div className="flex flex-col gap-2 items-end">
+                    <button
+                      onClick={() => handleResolve(rec.id)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-gradient-to-r from-solar-500 to-solar-600 text-white hover:shadow-md transition-all shrink-0"
+                    >
+                      <RotateCcw size={15} /> 恢复设备
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

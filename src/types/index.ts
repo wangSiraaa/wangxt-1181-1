@@ -6,20 +6,22 @@ export const RoleLabels: Record<Role, string> = {
   maintenance: '检修人员'
 };
 
-export type InverterStatus = 'normal' | 'comm_lost' | 'maintenance' | 'offline';
+export type InverterStatus = 'normal' | 'comm_lost' | 'maintenance' | 'offline' | 'comm_restored';
 export const InverterStatusLabels: Record<InverterStatus, string> = {
   normal: '正常运行',
   comm_lost: '通讯中断',
   maintenance: '检修中',
-  offline: '离线'
+  offline: '离线',
+  comm_restored: '通讯恢复待判'
 };
 
-export type ExecutionStatus = 'executed' | 'not_executed' | 'excluded' | 'unknown';
+export type ExecutionStatus = 'executed' | 'not_executed' | 'excluded' | 'unknown' | 'pending_recalc';
 export const ExecutionStatusLabels: Record<ExecutionStatus, string> = {
   executed: '已执行',
   not_executed: '未执行',
   excluded: '已剔除',
-  unknown: '未知'
+  unknown: '未知',
+  pending_recalc: '待重算'
 };
 
 export type UnavailableReason =
@@ -39,6 +41,30 @@ export const UnavailableReasonLabels: Record<UnavailableReason, string> = {
   other: '其他原因'
 };
 
+export interface CommRecoveryRecord {
+  id: string;
+  inverterId: string;
+  inverterCode: string;
+  lostAt: string;
+  restoredAt: string;
+  downtimeMinutes: number;
+  returnedPower: number;
+  targetRatioAtRecovery: number;
+  recalculatedRatio: number;
+  recalculatedStatus: ExecutionStatus;
+  recalculatedAt: string;
+  recalculatedBy: string;
+}
+
+export interface StrategyExecutionRecord {
+  strategyId: string;
+  inverterId: string;
+  targetRatio: number;
+  actualRatio: number;
+  executionStatus: ExecutionStatus;
+  recordedAt: string;
+}
+
 export interface Inverter {
   id: string;
   code: string;
@@ -55,6 +81,24 @@ export interface Inverter {
   unavailableDescription?: string;
   registeredBy?: string;
   registeredAt?: string;
+  expectedRestore?: string;
+  commLostAt?: string;
+  commRestoredAt?: string;
+  returnedPower?: number;
+  recalculatedAt?: string;
+  executionHistory?: StrategyExecutionRecord[];
+  unavailableRecord?: MaintenanceRecord;
+  commRecoveryRecord?: CommRecoveryRecord;
+}
+
+export interface StrategyLossDetail {
+  curtailmentLoss: number;
+  maintenanceLoss: number;
+  commLostLoss: number;
+  totalLoss: number;
+  estimatedRevenueLoss: number;
+  actualPower: number;
+  expectedPower: number;
 }
 
 export interface CurtailmentStrategy {
@@ -68,6 +112,25 @@ export interface CurtailmentStrategy {
   isActive: boolean;
   totalCapacity: number;
   expectedPower: number;
+  actualPower?: number;
+  executionDurationMinutes?: number;
+  lossDetail?: StrategyLossDetail;
+  excludedInverters?: {
+    inverterId: string;
+    inverterCode: string;
+    reason: UnavailableReason;
+    description: string;
+    registeredBy: string;
+    registeredAt: string;
+    expectedRestore?: string;
+    capacity: number;
+  }[];
+  commLostInverters?: {
+    inverterId: string;
+    inverterCode: string;
+    lostAt: string;
+    capacity: number;
+  }[];
 }
 
 export interface MaintenanceRecord {
@@ -81,6 +144,8 @@ export interface MaintenanceRecord {
   expectedRestore?: string;
   resolved: boolean;
   resolvedAt?: string;
+  capacity?: number;
+  area?: string;
 }
 
 export interface LossEstimation {
@@ -102,6 +167,16 @@ export interface StrategyStats {
   notExecutedCount: number;
   excludedCount: number;
   unknownCount: number;
+  pendingRecalcCount: number;
   achievementRate: number;
   activeRatio: number;
 }
+
+export interface StrategyComparisonItem {
+  strategy: CurtailmentStrategy;
+  stats: StrategyStats;
+  loss: LossEstimation;
+  durationMinutes: number;
+}
+
+export type ComparisonPeriod = 'hour' | 'day' | 'week';

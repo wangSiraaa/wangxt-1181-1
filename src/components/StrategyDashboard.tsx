@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
-  Send, Zap, Target, Clock, CheckSquare, Square, Power, AlertTriangle
+  Send, Zap, Target, Clock, CheckSquare, Square, Power, AlertTriangle,
+  GitCompare, RefreshCw, Wifi, AlertCircle
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { RoleLabels } from '../types';
@@ -8,20 +9,32 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid
 } from 'recharts';
 
-const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
+const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function StrategyDashboard() {
-  const { role, dispatch, activeStrategy, strategyStats, lossEstimation, strategies, inverters } = useApp();
+  const { 
+    role, 
+    dispatch, 
+    activeStrategy, 
+    strategyStats, 
+    lossEstimation, 
+    strategies, 
+    inverters,
+    strategyStats: stats
+  } = useApp();
   const canIssue = role === 'dispatcher';
   const [showForm, setShowForm] = useState(false);
   const [ratio, setRatio] = useState(activeStrategy?.targetRatio ?? 30);
   const [name, setName] = useState('');
 
+  const pendingRecalcInverters = inverters.filter(i => i.status === 'comm_restored' || i.executionStatus === 'pending_recalc');
+
   const pieData = [
     { name: '已执行', value: strategyStats.executedCount, color: COLORS[0] },
     { name: '未执行', value: strategyStats.notExecutedCount, color: COLORS[2] },
     { name: '已剔除(检修)', value: strategyStats.excludedCount, color: COLORS[1] },
-    { name: '未知(通讯中断)', value: strategyStats.unknownCount, color: COLORS[3] }
+    { name: '未知(通讯中断)', value: strategyStats.unknownCount, color: COLORS[3] },
+    { name: '待重算(通讯恢复)', value: strategyStats.pendingRecalcCount, color: COLORS[4] }
   ].filter(d => d.value > 0);
 
   const areaData = Array.from(new Set(inverters.map(i => i.area))).map(area => {
@@ -56,8 +69,64 @@ export default function StrategyDashboard() {
     dispatch({ type: 'RELEASE_STRATEGY', strategyId: activeStrategy.id });
   };
 
+  const openComparison = () => {
+    dispatch({ type: 'TOGGLE_STRATEGY_COMPARISON', show: true });
+  };
+
+  const simulateCommRestore = (invId: string) => {
+    const inv = inverters.find(i => i.id === invId);
+    if (!inv) return;
+    const returnedPower = inv.ratedCapacity * (0.5 + Math.random() * 0.4);
+    dispatch({
+      type: 'COMMUNICATION_RESTORED',
+      payload: {
+        inverterId: invId,
+        returnedPower: Math.round(returnedPower * 10) / 10,
+        restoredAt: new Date().toISOString()
+      }
+    });
+  };
+
   return (
     <div className="space-y-5">
+      {pendingRecalcInverters.length > 0 && (
+        <div className="bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+              <RefreshCw className="text-violet-600 animate-spin" size={20} />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-violet-800 flex items-center gap-2">
+                通讯恢复待判设备提醒
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-violet-600 text-white text-xs font-bold">
+                  {pendingRecalcInverters.length} 台
+                </span>
+              </h3>
+              <p className="text-sm text-violet-700 mt-1">
+                以下设备通讯已恢复，<b>禁止直接标记为已执行</b>，必须根据回传功率重新计算达成率：
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {pendingRecalcInverters.map(inv => (
+                  <div key={inv.id} className="bg-white rounded-lg px-3 py-2 border border-violet-200 text-sm">
+                    <span className="font-mono font-semibold text-violet-800">{inv.code}</span>
+                    <span className="text-violet-600 ml-2">回传功率: {inv.returnedPower?.toFixed(1) || inv.currentPower.toFixed(1)} kW</span>
+                    <button
+                      onClick={() => dispatch({
+                        type: 'RECALCULATE_ACHIEVEMENT',
+                        payload: { inverterId: inv.id, recalculatedBy: `${RoleLabels[role]}-当前用户` }
+                      })}
+                      className="ml-2 px-2 py-0.5 rounded bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 transition-colors"
+                    >
+                      重新计算
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           icon={<Target className="text-grid-600" />}
@@ -70,14 +139,14 @@ export default function StrategyDashboard() {
           icon={<CheckSquare className="text-solar-600" />}
           title="策略达成率"
           main={`${strategyStats.achievementRate}%`}
-          sub={`已执行 ${strategyStats.executedCount} / 可用 ${strategyStats.totalCount - strategyStats.excludedCount - strategyStats.unknownCount} 台`}
+          sub={`已执行 ${strategyStats.executedCount} / 可用 ${strategyStats.totalCount - strategyStats.excludedCount - strategyStats.unknownCount - strategyStats.pendingRecalcCount} 台`}
           gradient="from-solar-50 to-green-50"
         />
         <StatCard
           icon={<AlertTriangle className="text-warn-600" />}
           title="异常设备"
-          main={`${strategyStats.excludedCount + strategyStats.unknownCount} 台`}
-          sub={`检修中 ${strategyStats.excludedCount} · 通讯中断 ${strategyStats.unknownCount}`}
+          main={`${strategyStats.excludedCount + strategyStats.unknownCount + strategyStats.pendingRecalcCount} 台`}
+          sub={`检修中 ${strategyStats.excludedCount} · 中断 ${strategyStats.unknownCount} · 待判 ${strategyStats.pendingRecalcCount}`}
           gradient="from-warn-50 to-amber-50"
         />
         <StatCard
@@ -101,6 +170,21 @@ export default function StrategyDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={openComparison}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors border border-violet-200"
+              >
+                <GitCompare size={16} /> 版本对比
+              </button>
+              {strategies.filter(s => !s.isActive).length > 0 && (
+                <button
+                  onClick={() => simulateCommRestore('inv-028')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
+                  title="模拟INV-028通讯恢复"
+                >
+                  <Wifi size={16} /> 模拟通讯恢复
+                </button>
+              )}
               {canIssue && activeStrategy && (
                 <button
                   onClick={handleRelease}

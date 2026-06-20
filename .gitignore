@@ -22,6 +22,7 @@ dist/
 coverage/
 *.log
 *.tmp
+*.tsbuildinfo
 *.sqlite
 *.sqlite3
 *.db

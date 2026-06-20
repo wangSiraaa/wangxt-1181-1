@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Search, SlidersHorizontal, Signal, WifiOff, Wrench, XCircle, CheckCircle2,
-  AlertCircle, X, Pencil, Gauge, ChevronDown
+  AlertCircle, X, Pencil, Gauge, ChevronDown, ChevronRight, RefreshCw,
+  CalendarDays, User, FileText, Wifi, Target, Clock
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import {
@@ -25,6 +26,17 @@ export default function InverterTable() {
   const [registerReason, setRegisterReason] = useState<UnavailableReason>('fault_inverter');
   const [registerDesc, setRegisterDesc] = useState('');
   const [registerRestore, setRegisterRestore] = useState('');
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (id: string) => {
+    const newSet = new Set(expandedRows);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setExpandedRows(newSet);
+  };
 
   const filtered = useMemo(() => {
     return inverters.filter(inv => {
@@ -177,6 +189,7 @@ export default function InverterTable() {
         <table className="w-full text-sm min-w-[1100px]">
           <thead>
             <tr className="bg-ink-50 text-left text-ink-600 text-xs uppercase tracking-wide">
+              <th className="px-2 py-3 font-semibold w-8"></th>
               <th className="px-5 py-3 font-semibold">编号</th>
               <th className="px-2 py-3 font-semibold">设备名称</th>
               <th className="px-2 py-3 font-semibold">区域</th>
@@ -190,18 +203,38 @@ export default function InverterTable() {
           </thead>
           <tbody className="divide-y divide-ink-100">
             {filtered.map(inv => (
-              <tr key={inv.id} className="hover:bg-ink-50 transition-colors group">
-                <td className="px-5 py-3">
-                  <code className="px-2 py-1 rounded-md bg-ink-100 text-ink-700 text-xs font-mono font-medium">
-                    {inv.code}
-                  </code>
-                </td>
-                <td className="px-2 py-3 font-medium text-ink-800">{inv.name}</td>
-                <td className="px-2 py-3 text-ink-600 text-xs">{inv.area}</td>
-                <td className="px-2 py-3">
-                  <div className="text-ink-800 font-medium">{inv.currentPower.toFixed(1)} kW</div>
-                  <div className="text-[11px] text-ink-400">/ {inv.ratedCapacity} kW</div>
-                </td>
+              <React.Fragment key={inv.id}>
+                <tr className="hover:bg-ink-50 transition-colors group">
+                  <td className="px-2 py-3">
+                    {(inv.status === 'maintenance' || inv.status === 'comm_restored' || inv.executionStatus === 'pending_recalc') && (
+                      <button
+                        onClick={() => toggleExpand(inv.id)}
+                        className="p-1 rounded hover:bg-ink-100 transition-colors text-ink-400 hover:text-ink-600"
+                      >
+                        {expandedRows.has(inv.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
+                    <code className="px-2 py-1 rounded-md bg-ink-100 text-ink-700 text-xs font-mono font-medium">
+                      {inv.code}
+                    </code>
+                  </td>
+                  <td className="px-2 py-3 font-medium text-ink-800">{inv.name}</td>
+                  <td className="px-2 py-3 text-ink-600 text-xs">{inv.area}</td>
+                  <td className="px-2 py-3">
+                    <div className="text-ink-800 font-medium">
+                      {inv.returnedPower !== undefined && inv.executionStatus === 'pending_recalc' ? (
+                        <span className="text-violet-600">{inv.returnedPower.toFixed(1)} kW</span>
+                      ) : (
+                        inv.currentPower.toFixed(1)
+                      )} kW
+                    </div>
+                    <div className="text-[11px] text-ink-400">/ {inv.ratedCapacity} kW</div>
+                    {inv.returnedPower !== undefined && inv.executionStatus === 'pending_recalc' && (
+                      <div className="text-[10px] text-violet-500 mt-0.5">回传功率</div>
+                    )}
+                  </td>
                 <td className="px-2 py-3">
                   <StatusBadge status={inv.status} />
                 </td>
@@ -300,6 +333,127 @@ export default function InverterTable() {
                   )}
                 </td>
               </tr>
+              {expandedRows.has(inv.id) && (
+                <tr className="bg-ink-50/50">
+                  <td colSpan={10} className="px-5 py-4 border-t border-ink-100">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {inv.status === 'maintenance' && inv.unavailableRecord && (
+                        <div className="bg-white rounded-xl p-4 border border-warn-200">
+                          <h4 className="text-sm font-semibold text-warn-800 mb-3 flex items-center gap-2">
+                            <Wrench size={16} className="text-warn-600" /> 检修追责信息
+                          </h4>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <span className="text-ink-400 w-20">不可用原因：</span>
+                              <span className="font-medium text-warn-700">
+                                {UnavailableReasonLabels[inv.unavailableRecord.reason]}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2 text-ink-600">
+                              <span className="text-ink-400 w-20 shrink-0">详细描述：</span>
+                              <span className="flex-1">{inv.unavailableRecord.description}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <User size={12} className="text-ink-400" />
+                              <span className="text-ink-400">登记人：</span>
+                              <span className="font-medium">{inv.unavailableRecord.registeredBy}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <CalendarDays size={12} className="text-ink-400" />
+                              <span className="text-ink-400">登记时间：</span>
+                              <span>{new Date(inv.unavailableRecord.registeredAt).toLocaleString('zh-CN')}</span>
+                            </div>
+                            {inv.unavailableRecord.expectedRestore && (
+                              <div className="flex items-center gap-2 text-warn-600">
+                                <Clock size={12} />
+                                <span className="w-20">预计恢复：</span>
+                                <span className="font-medium">
+                                  {new Date(inv.unavailableRecord.expectedRestore).toLocaleString('zh-CN')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {(inv.status === 'comm_restored' || inv.executionStatus === 'pending_recalc') && (
+                        <div className="bg-white rounded-xl p-4 border border-violet-200">
+                          <h4 className="text-sm font-semibold text-violet-800 mb-3 flex items-center gap-2">
+                            <RefreshCw size={16} className="text-violet-600 animate-spin" /> 通讯恢复补判信息
+                          </h4>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <Wifi size={12} className="text-violet-500" />
+                              <span className="text-ink-400 w-24">回传功率：</span>
+                              <span className="font-medium text-violet-700">
+                                {inv.returnedPower?.toFixed(1) || inv.currentPower.toFixed(1)} kW
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <Target size={12} className="text-ink-400" />
+                              <span className="text-ink-400 w-24">目标比例：</span>
+                              <span className="font-medium">{inv.targetRatio}%</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <Gauge size={12} className="text-ink-400" />
+                              <span className="text-ink-400 w-24">当前比例：</span>
+                              <span className="font-medium text-warn-600">{inv.curtailmentRatio}%</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-ink-600">
+                              <AlertCircle size={12} className="text-warn-500" />
+                              <span className="text-warn-600 text-xs">
+                                禁止直接标记为已执行，必须按回传功率重新计算达成率
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => dispatch({
+                                type: 'RECALCULATE_ACHIEVEMENT',
+                                payload: { inverterId: inv.id, recalculatedBy: `${RoleLabels[role]}-当前用户` }
+                              })}
+                              className="mt-2 w-full px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors flex items-center justify-center gap-2"
+                            >
+                              <RefreshCw size={14} /> 重新计算达成率
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {inv.commRecoveryRecord && (
+                        <div className="bg-white rounded-xl p-4 border border-blue-200 md:col-span-2">
+                          <h4 className="text-sm font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                            <CheckCircle2 size={16} className="text-blue-600" /> 通讯恢复重算记录
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                            <div className="text-ink-600">
+                              <span className="text-ink-400">中断时间：</span>
+                              <span className="font-medium">{new Date(inv.commRecoveryRecord.lostAt).toLocaleString('zh-CN')}</span>
+                            </div>
+                            <div className="text-ink-600">
+                              <span className="text-ink-400">恢复时间：</span>
+                              <span className="font-medium text-green-600">{new Date(inv.commRecoveryRecord.restoredAt).toLocaleString('zh-CN')}</span>
+                            </div>
+                            <div className="text-ink-600">
+                              <span className="text-ink-400">中断时长：</span>
+                              <span className="font-medium">{inv.commRecoveryRecord.downtimeMinutes} 分钟</span>
+                            </div>
+                            <div className="text-ink-600">
+                              <span className="text-ink-400">重算后比例：</span>
+                              <span className="font-medium text-violet-600">{inv.commRecoveryRecord.recalculatedRatio}%</span>
+                            </div>
+                            <div className="text-ink-600">
+                              <span className="text-ink-400">重算后状态：</span>
+                              <span className="font-medium">{ExecutionStatusLabels[inv.commRecoveryRecord.recalculatedStatus]}</span>
+                            </div>
+                            <div className="text-ink-600">
+                              <span className="text-ink-400">重算人：</span>
+                              <span className="font-medium">{inv.commRecoveryRecord.recalculatedBy}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
 
             {registerInv && (() => {
@@ -307,7 +461,7 @@ export default function InverterTable() {
               if (!inv) return null;
               return (
                 <tr>
-                  <td colSpan={9} className="px-5 py-4 bg-gradient-to-r from-warn-50 to-amber-50 border-t border-warn-200">
+                  <td colSpan={10} className="px-5 py-4 bg-gradient-to-r from-warn-50 to-amber-50 border-t border-warn-200">
                     <div className="max-w-2xl">
                       <p className="text-sm font-semibold text-warn-800 mb-3 flex items-center gap-2">
                         <AlertCircle size={16} /> 登记不可用原因 · {inv.code} {inv.name}
@@ -368,6 +522,7 @@ function StatusBadge({ status }: { status: InverterStatus }) {
   const config = {
     normal: { icon: Signal, cls: 'bg-solar-50 text-solar-700 border-solar-200', text: InverterStatusLabels.normal },
     comm_lost: { icon: WifiOff, cls: 'bg-danger-50 text-danger-700 border-danger-200', text: InverterStatusLabels.comm_lost },
+    comm_restored: { icon: Wifi, cls: 'bg-violet-50 text-violet-700 border-violet-200', text: InverterStatusLabels.comm_restored },
     maintenance: { icon: Wrench, cls: 'bg-grid-50 text-grid-700 border-grid-200', text: InverterStatusLabels.maintenance },
     offline: { icon: XCircle, cls: 'bg-ink-100 text-ink-600 border-ink-200', text: InverterStatusLabels.offline }
   }[status];
@@ -385,12 +540,13 @@ function ExecutionBadge({ status }: { status: ExecutionStatus }) {
     executed: { icon: CheckCircle2, cls: 'bg-solar-50 text-solar-700', text: ExecutionStatusLabels.executed },
     not_executed: { icon: AlertCircle, cls: 'bg-warn-50 text-warn-700', text: ExecutionStatusLabels.not_executed },
     excluded: { icon: XCircle, cls: 'bg-grid-50 text-grid-700', text: ExecutionStatusLabels.excluded },
-    unknown: { icon: WifiOff, cls: 'bg-danger-50 text-danger-700', text: ExecutionStatusLabels.unknown }
+    unknown: { icon: WifiOff, cls: 'bg-danger-50 text-danger-700', text: ExecutionStatusLabels.unknown },
+    pending_recalc: { icon: RefreshCw, cls: 'bg-violet-50 text-violet-700', text: ExecutionStatusLabels.pending_recalc }
   }[status];
   const Icon = config.icon;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.cls}`}>
-      <Icon size={11} />
+      <Icon size={11} className={status === 'pending_recalc' ? 'animate-spin' : ''} />
       {config.text}
     </span>
   );

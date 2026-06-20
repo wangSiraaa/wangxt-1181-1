@@ -1,14 +1,56 @@
+import { useState, useMemo } from 'react';
 import {
   TrendingDown, Zap, DollarSign, AlertTriangle, Server,
-  WifiOff, Target, BarChart3, Wrench
+  WifiOff, Target, BarChart3, Wrench, GitCompare, ChevronDown,
+  Check, X
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
 } from 'recharts';
+import { CurtailmentStrategy, LossEstimation as LossEstimationType, StrategyStats } from '../types';
 
 export default function LossEstimation() {
-  const { lossEstimation, strategyStats, activeStrategy, inverters } = useApp();
+  const { lossEstimation, strategyStats, activeStrategy, inverters, strategies, calcLossForStrategy, calcStatsForStrategy } = useApp();
+  const [selectedStrategyIds, setSelectedStrategyIds] = useState<string[]>(activeStrategy ? [activeStrategy.id] : []);
+  const [showStrategySelector, setShowStrategySelector] = useState(false);
+
+  const toggleStrategySelection = (strategyId: string) => {
+    setSelectedStrategyIds(prev => {
+      if (prev.includes(strategyId)) {
+        return prev.filter(id => id !== strategyId);
+      }
+      if (prev.length >= 3) {
+        return [...prev.slice(1), strategyId];
+      }
+      return [...prev, strategyId];
+    });
+  };
+
+  const strategyComparisonData = useMemo(() => {
+    return selectedStrategyIds.map(id => {
+      const strategy = strategies.find(s => s.id === id);
+      if (!strategy) return null;
+      const loss = calcLossForStrategy(strategy);
+      const stats = calcStatsForStrategy(strategy);
+      const duration = strategy.effectiveTo
+        ? Math.round((new Date(strategy.effectiveTo).getTime() - new Date(strategy.effectiveFrom).getTime()) / 60000)
+        : Math.round((Date.now() - new Date(strategy.effectiveFrom).getTime()) / 60000);
+      return { strategy, loss, stats, duration };
+    }).filter(Boolean) as { strategy: CurtailmentStrategy; loss: LossEstimationType; stats: StrategyStats; duration: number }[];
+  }, [selectedStrategyIds, strategies, calcLossForStrategy, calcStatsForStrategy]);
+
+  const comparisonChartData = useMemo(() => {
+    return strategyComparisonData.map((item, idx) => ({
+      name: `V${strategies.length - idx} ${item.strategy.targetRatio}%`,
+      限发损失: item.loss.curtailmentLoss,
+      检修损失: item.loss.maintenanceLoss,
+      通讯中断损失: item.loss.commLostLoss,
+      总损失: item.loss.totalLoss,
+      达成率: item.stats.achievementRate,
+      执行时长: item.duration
+    }));
+  }, [strategyComparisonData, strategies.length]);
 
   const compositionData = [
     {
@@ -74,14 +116,128 @@ export default function LossEstimation() {
               基于当日峰值日照时长 4.2h · 电价 ¥0.38/kWh · 实时联动设备状态
             </p>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-danger-50 to-rose-50 border border-danger-100">
-            <DollarSign size={18} className="text-danger-600" />
-            <div>
-              <p className="text-[11px] text-danger-600 leading-tight">预计经济损失</p>
-              <p className="text-xl font-black text-danger-700 leading-tight">¥ {lossEstimation.estimatedRevenueLoss.toLocaleString()}</p>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                onClick={() => setShowStrategySelector(s => !s)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100 transition-colors"
+              >
+                <GitCompare size={16} />
+                <span className="text-sm font-medium">
+                  对比策略版本 ({selectedStrategyIds.length}/3)
+                </span>
+                <ChevronDown size={14} className={`transition-transform ${showStrategySelector ? 'rotate-180' : ''}`} />
+              </button>
+              {showStrategySelector && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-lg border border-ink-200 z-20 overflow-hidden">
+                  <div className="p-3 border-b border-ink-100 bg-ink-50">
+                    <p className="text-xs font-medium text-ink-600">选择最多3个策略进行对比</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {strategies.map((s, idx) => (
+                      <div
+                        key={s.id}
+                        onClick={() => toggleStrategySelection(s.id)}
+                        className={`flex items-center gap-3 px-4 py-3 hover:bg-ink-50 cursor-pointer transition-colors ${
+                          selectedStrategyIds.includes(s.id) ? 'bg-violet-50' : ''
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                          selectedStrategyIds.includes(s.id)
+                            ? 'bg-violet-600 border-violet-600'
+                            : 'border-ink-300'
+                        }`}>
+                          {selectedStrategyIds.includes(s.id) && <Check size={12} className="text-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-ink-800">V{strategies.length - idx}</span>
+                            <span className="text-xs font-bold text-violet-600">{s.targetRatio}%</span>
+                            {s.isActive && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-solar-100 text-solar-700">活跃</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-ink-500 truncate">{s.name}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-2 border-t border-ink-100 flex justify-end">
+                    <button
+                      onClick={() => setShowStrategySelector(false)}
+                      className="px-3 py-1.5 text-xs text-ink-500 hover:text-ink-700"
+                    >
+                      关闭
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-danger-50 to-rose-50 border border-danger-100">
+              <DollarSign size={18} className="text-danger-600" />
+              <div>
+                <p className="text-[11px] text-danger-600 leading-tight">预计经济损失</p>
+                <p className="text-xl font-black text-danger-700 leading-tight">¥ {lossEstimation.estimatedRevenueLoss.toLocaleString()}</p>
+              </div>
             </div>
           </div>
         </div>
+
+        {strategyComparisonData.length > 1 && (
+          <div className="mb-5 p-4 rounded-xl bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200">
+            <h3 className="text-sm font-semibold text-violet-800 mb-3 flex items-center gap-2">
+              <GitCompare size={16} /> 策略版本损失对比
+            </h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={comparisonChartData} margin={{ top: 10, right: 15, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6d28d9' }} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#64748b' }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
+                  <Bar yAxisId="left" dataKey="限发损失" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="检修损失" stackId="a" fill="#3b82f6" />
+                  <Bar yAxisId="left" dataKey="通讯中断损失" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="达成率" stroke="#8b5cf6" strokeWidth={2} dot={{ fill: '#8b5cf6', r: 4 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+              {strategyComparisonData.map((item, idx) => (
+                <div key={item.strategy.id} className="bg-white rounded-lg p-3 border border-violet-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-violet-700">
+                      V{strategies.length - idx} · {item.strategy.name}
+                    </span>
+                    <span className="text-lg font-black text-violet-800">{item.strategy.targetRatio}%</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-ink-500">总损失：</span>
+                      <span className="font-medium text-danger-600">{item.loss.totalLoss} kWh</span>
+                    </div>
+                    <div>
+                      <span className="text-ink-500">达成率：</span>
+                      <span className="font-medium text-solar-600">{item.stats.achievementRate}%</span>
+                    </div>
+                    <div>
+                      <span className="text-ink-500">执行时长：</span>
+                      <span className="font-medium text-grid-600">
+                        {item.duration >= 60 ? `${Math.floor(item.duration / 60)}h${item.duration % 60}m` : `${item.duration}m`}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-ink-500">经济损失：</span>
+                      <span className="font-medium text-warn-600">¥{item.loss.estimatedRevenueLoss}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
           <LossCard
